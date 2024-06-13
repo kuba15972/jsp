@@ -1,0 +1,136 @@
+Description: Instances and config
+
+Resources:
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties: 
+      DBInstanceIdentifier: db-wp
+      DBInstanceClass: db.t3.micro
+      Engine: mysql
+      EngineVersion: 8.0.35
+      MasterUsername: admin
+      MasterUserPassword: admin123
+      AllocatedStorage: 20
+      StorageType: gp2
+      PubliclyAccessible: false
+      VPCSecurityGroups:
+        - !ImportValue db-sg
+      DBSubnetGroupName: !ImportValue db-subg
+      AvailabilityZone: us-east-1a
+      Port: 3306
+      DBName: db_wp
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    DependsOn: RDSInstance
+    Properties:
+      InstanceType: t2.micro
+      SubnetId: !ImportValue pubsub
+      SecurityGroupIds:
+        - !ImportValue ws-sg
+      KeyName: key_jsp
+      ImageId: ami-0d191299f2822b1fa
+      VpcId: !ImportValue vpc
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+
+          # Ustawienia RDS
+          RDS_HOSTNAME=${RDSInstance.Endpoint.Address}
+          echo "export RDS_HOSTNAME=${RDSInstance.Endpoint.Address}" >> /home/ec2-user/.bashrc
+          export RDS_HOSTNAME=${RDSInstance.Endpoint.Address}
+          
+          echo "RDS hostname set to $RDS_HOSTNAME"
+
+          # Aktualizacja systemu
+          echo "Updating system..."
+          sudo yum update -y
+          
+          # Instalacja MariaDB i PHP
+          echo "Installing MariaDB..."
+          sudo amazon-linux-extras install mariadb10.5 -y
+          
+          echo "Installing PHP..."
+          sudo amazon-linux-extras install php8.2 -y
+          
+          # Instalacja Apache
+          echo "Installing Apache..."
+          sudo yum install -y httpd
+          sudo systemctl start httpd
+          sudo systemctl enable httpd
+          
+          # Konfiguracja Apache
+          echo "Configuring Apache..."
+          sudo usermod -a -G apache ec2-user
+          sudo chown -R ec2-user:apache /var/www
+          sudo chmod 2775 /var/www && find /var/www -type d -exec sudo chmod 2775 {} \;
+          find /var/www -type f -exec sudo chmod 0664 {} \;
+          
+          # Pobranie i rozpakowanie WordPress
+          echo "Downloading WordPress..."
+          cd /home/ec2-user/
+          wget https://wordpress.org/latest.tar.gz
+          tar -xzf latest.tar.gz
+          
+          # Pętla oczekująca na utworzenie katalogu wordpress
+          while [ ! -d "wordpress" ]; do
+            echo "Waiting for WordPress to be extracted..."
+            sleep 5
+          done
+
+          cp wordpress/wp-config-sample.php wordpress/wp-config.php
+
+          echo "WordPress directory found, proceeding with copy."
+
+          # URL do pobrania kluczy i solów
+          KEYS_URL="https://api.wordpress.org/secret-key/1.1/salt/"
+
+          # Pobierz klucze i soly
+          echo "Pobieranie nowych kluczy i solów..."
+          new_keys=$(curl -s $KEYS_URL)
+          if [ $? -ne 0 ]; then
+              echo "Nie udało się pobrać kluczy z serwisu WordPress"
+              exit 1
+          fi
+
+          # Plik wp-config.php
+          CONFIG_FILE="/home/ec2-user/wordpress/wp-config.php"
+
+          # Sprawdź, czy plik istnieje
+          if [ ! -f "$CONFIG_FILE" ]; then
+              echo "Plik $CONFIG_FILE nie istnieje."
+              exit 1
+          fi
+
+          # Podmień stare klucze i soly na nowe
+          echo "Aktualizowanie pliku $CONFIG_FILE..."
+
+          # Wstaw dane połączenia z bazą
+
+          sudo sed -i "s/'database_name_here'/'wordpress_db'/" $CONFIG_FILE
+          sudo sed -i "s/'username_here'/'wordpress-user'/" $CONFIG_FILE
+          sudo sed -i "s/'password_here'/'admin123'/" $CONFIG_FILE
+          sudo sed -i "s/'localhost'/'$RDS_HOSTNAME'/" $CONFIG_FILE
+
+          echo "Plik $CONFIG_FILE został pomyślnie zaktualizowany."
+
+          cp -r wordpress/* /var/www/html/
+          
+          # Konfiguracja MySQL
+          echo "Configuring MySQL..."
+          mysql -h $RDS_HOSTNAME -P 3306 --user=admin --password=admin123 <<EOF
+          CREATE USER 'wordpress-user'@'%' IDENTIFIED BY 'admin123';
+          CREATE DATABASE wordpress_db;
+          GRANT ALL PRIVILEGES ON wordpress_db.* TO 'wordpress-user'@'%';
+          FLUSH PRIVILEGES;
+          EOF
+          
+          echo "MySQL configuration completed."
+          
+          # Wyjście ze skryptu
+          echo "Script execution completed."
+          exit 0
+
+      Tags:
+        - Key: Name
+          Value: WordPress
