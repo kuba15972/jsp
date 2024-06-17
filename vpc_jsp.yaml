@@ -138,52 +138,6 @@ Resources:
     Properties:
       RouteTableId: !Ref PrivateRouteTable2
       SubnetId: !Ref PrivateSubnet2
-  
-  WebServerSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Enable SSH and HTTP access
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp 
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: WP_SG
-
-  DBSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-    Properties:
-      DBSubnetGroupDescription: "DB subnet group"
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-      DBSubnetGroupName: db_subg
-
-  DatabaseSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: "Security group for database"
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 3306
-          ToPort: 3306
-          SourceSecurityGroupId: !GetAtt WebServerSecurityGroup.GroupId
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          FromPort: -1
-          ToPort: -1
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: DB_SG
 
 Outputs:
 
@@ -192,24 +146,6 @@ Outputs:
       Value: !Ref VPC
       Export:
         Name: vpc
-    
-    DbSg:
-      Description: Database Security Group ID
-      Value: !Ref DatabaseSecurityGroup
-      Export:
-        Name: db-sg
-    
-    DbSubG:
-      Description: Database Subnet Group ID
-      Value: !Ref DBSubnetGroup
-      Export:
-        Name: db-subg
-
-    WsSg:
-      Description: Web Server Security Group ID
-      Value: !Ref WebServerSecurityGroup
-      Export:
-        Name: ws-sg
 
     PubSub:
       Description: Public Subnet ID

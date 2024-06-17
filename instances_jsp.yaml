@@ -1,6 +1,53 @@
 Description: Instances and config
 
 Resources:
+
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH and HTTP access
+      VpcId: !ImportValue vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp 
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: WP_SG
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "DB subnet group"
+      SubnetIds:
+        - !ImportValue privsub-1
+        - !ImportValue privsub-2
+      DBSubnetGroupName: db_subg
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for database"
+      VpcId: !ImportValue vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !GetAtt WebServerSecurityGroup.GroupId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: DB_SG
+
   RDSInstance:
     Type: AWS::RDS::DBInstance
     Properties: 
@@ -9,13 +56,13 @@ Resources:
       Engine: mysql
       EngineVersion: 8.0.35
       MasterUsername: admin
-      MasterUserPassword: admin123
+      MasterUserPassword: admin123 
       AllocatedStorage: 20
       StorageType: gp2
       PubliclyAccessible: false
       VPCSecurityGroups:
-        - !ImportValue db-sg
-      DBSubnetGroupName: !ImportValue db-subg
+        - !Ref DatabaseSecurityGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
       AvailabilityZone: us-east-1a
       Port: 3306
       DBName: db_wp
@@ -27,7 +74,7 @@ Resources:
       InstanceType: t2.micro
       SubnetId: !ImportValue pubsub
       SecurityGroupIds:
-        - !ImportValue ws-sg
+        - !Ref WebServerSecurityGroup
       ImageId: ami-0d191299f2822b1fa
       VpcId: !ImportValue vpc
       UserData:
